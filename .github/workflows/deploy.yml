@@ -2,7 +2,9 @@ name: Deploy School Management
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -25,19 +27,42 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Extract project ZIP
-        run: |
-          mkdir -p site
-          unzip -o phase4.2-full-project.zip -d site
-
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 
-      - name: Upload website
+      - name: Extract project ZIP
+        run: |
+          mkdir -p extracted
+          unzip -o phase4.2-full-project.zip -d extracted
+
+      - name: Prepare website
+        run: |
+          mkdir -p public
+
+          SOURCE=$(find extracted -type f -name "index.html" -printf '%h\n' | head -n 1)
+
+          echo "Website source: $SOURCE"
+
+          if [ -z "$SOURCE" ]; then
+            echo "ERROR: index.html not found"
+            exit 1
+          fi
+
+          cp -R "$SOURCE"/. public/
+
+          echo "Published files:"
+          ls -la public/
+
+      - name: Verify index.html
+        run: |
+          test -f public/index.html
+          echo "index.html found successfully"
+
+      - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./site
+          path: public
 
-      - name: Deploy
+      - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
