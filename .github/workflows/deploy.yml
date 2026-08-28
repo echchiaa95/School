@@ -33,7 +33,7 @@ jobs:
       - name: Extract project ZIP
         run: |
           mkdir -p extracted
-          unzip -o phase4.2-supabase-connected.zip -d extracted
+          unzip -o phase4.2-alphanumeric-login.zip -d extracted
 
       - name: Prepare website
         run: |
