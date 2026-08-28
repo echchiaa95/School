@@ -24,45 +24,157 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # ============================================================
+      # 1. Checkout
+      # ============================================================
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # ============================================================
+      # 2. Configure GitHub Pages
+      # ============================================================
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 
-      - name: Extract project ZIP
+      # ============================================================
+      # 3. Find and extract project ZIP
+      # ============================================================
+      - name: Find and extract project ZIP
+        shell: bash
         run: |
+          set -e
+
           mkdir -p extracted
-          unzip -o phase4.2-diagnostic.zip -d extracted
 
-      - name: Prepare website
-        run: |
-          mkdir -p public
+          echo "========================================"
+          echo "Repository root:"
+          echo "========================================"
+          pwd
+          ls -lah
 
-          SOURCE=$(find extracted -type f -name "index.html" -printf '%h\n' | head -n 1)
+          echo ""
+          echo "========================================"
+          echo "ZIP files:"
+          echo "========================================"
+          find . -maxdepth 2 -type f -iname "*.zip" -print
 
-          echo "Website source: $SOURCE"
+          ZIP_FILE=$(find . -maxdepth 2 -type f -iname "*.zip" | head -n 1)
 
-          if [ -z "$SOURCE" ]; then
-            echo "ERROR: index.html not found"
+          if [ -z "$ZIP_FILE" ]; then
+            echo ""
+            echo "ERROR: No ZIP file found in repository."
             exit 1
           fi
 
+          echo ""
+          echo "========================================"
+          echo "Selected ZIP:"
+          echo "$ZIP_FILE"
+          echo "========================================"
+
+          unzip -o "$ZIP_FILE" -d extracted
+
+          echo ""
+          echo "========================================"
+          echo "Extracted project:"
+          echo "========================================"
+          find extracted -maxdepth 3 -type f | head -n 100
+
+      # ============================================================
+      # 4. Locate index.html
+      # ============================================================
+      - name: Locate website
+        shell: bash
+        run: |
+          set -e
+
+          echo "Searching for index.html..."
+
+          INDEX_FILE=$(find extracted -type f -name "index.html" | head -n 1)
+
+          if [ -z "$INDEX_FILE" ]; then
+            echo "ERROR: index.html not found inside ZIP."
+            exit 1
+          fi
+
+          SOURCE=$(dirname "$INDEX_FILE")
+
+          echo "index.html found:"
+          echo "$INDEX_FILE"
+
+          echo "Website source:"
+          echo "$SOURCE"
+
+          echo "$SOURCE" > website_source.txt
+
+      # ============================================================
+      # 5. Prepare website
+      # ============================================================
+      - name: Prepare website
+        shell: bash
+        run: |
+          set -e
+
+          mkdir -p public
+
+          SOURCE=$(cat website_source.txt)
+
+          echo "Publishing from:"
+          echo "$SOURCE"
+
           cp -R "$SOURCE"/. public/
 
+          echo ""
+          echo "========================================"
           echo "Published files:"
-          ls -la public/
+          echo "========================================"
 
-      - name: Verify index.html
+          find public -maxdepth 3 -type f -print
+
+          echo ""
+          ls -lah public/
+
+      # ============================================================
+      # 6. Verify website
+      # ============================================================
+      - name: Verify website
+        shell: bash
         run: |
-          test -f public/index.html
-          echo "index.html found successfully"
+          set -e
 
+          test -f public/index.html
+
+          echo "index.html found successfully."
+
+          echo ""
+          echo "Checking critical application files..."
+
+          if [ -f public/modules/auth.js ]; then
+            echo "OK: modules/auth.js"
+          else
+            echo "WARNING: modules/auth.js not found"
+          fi
+
+          if [ -f public/modules/supabase.js ]; then
+            echo "OK: modules/supabase.js"
+          else
+            echo "WARNING: modules/supabase.js not found"
+          fi
+
+          echo ""
+          echo "Website verification completed."
+
+      # ============================================================
+      # 7. Upload GitHub Pages artifact
+      # ============================================================
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: public
 
+      # ============================================================
+      # 8. Deploy
+      # ============================================================
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
