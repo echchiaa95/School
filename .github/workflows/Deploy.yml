@@ -18,20 +18,28 @@ concurrency:
 
 jobs:
   deploy:
+    runs-on: ubuntu-latest
+
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
 
-    runs-on: ubuntu-latest
-
     steps:
+      # ============================================================
+      # 1. Checkout repository
+      # ============================================================
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # ============================================================
+      # 2. Configure GitHub Pages
+      # ============================================================
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 
-      # Find the correct ZIP by checking its contents
+      # ============================================================
+      # 3. Find and extract project ZIP
+      # ============================================================
       - name: Find and extract project ZIP
         shell: bash
         run: |
@@ -39,87 +47,66 @@ jobs:
 
           mkdir -p extracted
 
-          echo "Searching ZIP archives..."
+          echo "Searching for project ZIP files..."
 
-          SELECTED_ZIP=""
+          mapfile -t ZIP_FILES < <(
+            find . -maxdepth 2 -type f -iname "*.zip" \
+              ! -path "./.git/*" | sort
+          )
 
-          # Optional: set an exact ZIP path here if needed.
-          PROJECT_ZIP=""
-
-          if [ -n "$PROJECT_ZIP" ]; then
-            if [ ! -f "$PROJECT_ZIP" ]; then
-              echo "ERROR: Configured ZIP does not exist: $PROJECT_ZIP"
-              exit 1
-            fi
-            SELECTED_ZIP="$PROJECT_ZIP"
-          else
-            while IFS= read -r -d '' ZIP; do
-              echo "Checking: $ZIP"
-
-              if unzip -Z1 "$ZIP" | grep -Eiq '(^|/)index\.html$'; then
-                if [ -n "$SELECTED_ZIP" ]; then
-                  echo "ERROR: More than one ZIP contains index.html."
-                  echo "First: $SELECTED_ZIP"
-                  echo "Another: $ZIP"
-                  echo "Set PROJECT_ZIP explicitly in this step."
-                  exit 1
-                fi
-
-                SELECTED_ZIP="$ZIP"
-              fi
-            done < <(
-              find . -type f -iname "*.zip" \
-                -not -path "./.git/*" -print0 | sort -z
-            )
-          fi
-
-          if [ -z "$SELECTED_ZIP" ]; then
-            echo "ERROR: No ZIP containing index.html was found."
-            echo "Available ZIP files:"
-            find . -type f -iname "*.zip" -print
+          if [ "${#ZIP_FILES[@]}" -eq 0 ]; then
+            echo "ERROR: No ZIP file found."
             exit 1
           fi
 
-          echo "Selected project ZIP: $SELECTED_ZIP"
+          if [ "${#ZIP_FILES[@]}" -gt 1 ]; then
+            echo "ERROR: Multiple ZIP files found:"
+            printf '%s\n' "${ZIP_FILES[@]}"
+            echo "Keep only the intended project ZIP in the repository."
+            exit 1
+          fi
 
-          unzip -o "$SELECTED_ZIP" -d extracted
+          ZIP_FILE="${ZIP_FILES[0]}"
 
-          echo "Extracted files:"
-          find extracted -maxdepth 4 -type f | head -n 150
+          echo "Selected ZIP: $ZIP_FILE"
 
-      # Locate the actual website directory
+          unzip -o "$ZIP_FILE" -d extracted
+
+          echo "Extraction completed."
+
+      # ============================================================
+      # 4. Locate index.html
+      # ============================================================
       - name: Locate website
         shell: bash
         run: |
           set -euo pipefail
-
-          echo "Searching for index.html..."
 
           mapfile -t INDEX_FILES < <(
             find extracted -type f -name "index.html" | sort
           )
 
           if [ "${#INDEX_FILES[@]}" -eq 0 ]; then
-            echo "ERROR: index.html not found."
+            echo "ERROR: index.html not found inside ZIP."
             exit 1
           fi
 
           if [ "${#INDEX_FILES[@]}" -gt 1 ]; then
             echo "ERROR: Multiple index.html files found:"
             printf '%s\n' "${INDEX_FILES[@]}"
-            echo "Cannot safely determine the website root."
+            echo "Please ensure the ZIP contains one website root."
             exit 1
           fi
 
-          INDEX_FILE="${INDEX_FILES[0]}"
-          SOURCE="$(dirname "$INDEX_FILE")"
+          SOURCE="$(dirname "${INDEX_FILES[0]}")"
 
-          echo "Website entry point: $INDEX_FILE"
           echo "Website source: $SOURCE"
 
           echo "$SOURCE" > website_source.txt
 
-      # Prepare GitHub Pages directory
+      # ============================================================
+      # 5. Prepare website
+      # ============================================================
       - name: Prepare website
         shell: bash
         run: |
@@ -129,14 +116,18 @@ jobs:
 
           SOURCE="$(cat website_source.txt)"
 
-          echo "Publishing from: $SOURCE"
-
           cp -a "$SOURCE"/. public/
 
-          echo "Published files:"
-          find public -maxdepth 3 -type f | head -n 150
+          test -s public/index.html
 
-      # Verify the deployed website
+          echo "Website prepared successfully."
+
+          echo "Published files:"
+          find public -maxdepth 3 -type f | sort | head -n 150
+
+      # ============================================================
+      # 6. Verify website
+      # ============================================================
       - name: Verify website
         shell: bash
         run: |
@@ -153,17 +144,27 @@ jobs:
             if [ -f "public/$FILE" ]; then
               echo "OK: $FILE"
             else
-              echo "NOTICE: $FILE not found"
+              echo "WARNING: $FILE not found"
             fi
           done
 
           echo "Website verification completed."
 
+      # ============================================================
+      # 7. Upload GitHub Pages artifact
+      # ============================================================
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v4
         with:
+          name: github-pages
           path: public
+          retention-days: 1
 
+      # ============================================================
+      # 8. Deploy to GitHub Pages
+      # ============================================================
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          artifact_name: github-pages
